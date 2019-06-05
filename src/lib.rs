@@ -1,3 +1,5 @@
+#![allow(bare_trait_objects)]
+
 #[macro_use]
 extern crate log;
 
@@ -51,7 +53,7 @@ mod glx_extra {
     include!(concat!(env!("OUT_DIR"), "/glx_extra_bindings.rs"));
 }
 
-#[cfg(any(target_os="android", target_os="windows", all(target_os="linux", feature = "test_egl_in_linux")))]
+#[cfg(any(target_os="android", target_os="windows", all(/*target_os="linux",*/ feature = "test_egl_in_linux")))]
 #[allow(non_camel_case_types)]
 mod egl {
     use std::os::raw::{c_long, c_void};

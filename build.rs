@@ -15,7 +15,7 @@ fn main() {
     {
         let mut file = File::create(&dest.join("egl_bindings.rs")).unwrap();
         Registry::new(Api::Egl, (1, 5), Profile::Core, Fallbacks::All, [])
-            .write_bindings(gl_generator::StaticGenerator, &mut file).unwrap();
+            .write_bindings(gl_generator::StructGenerator, &mut file).unwrap();
         if !target.contains("windows") {
             println!("cargo:rustc-link-lib=EGL");
         }

@@ -1,8 +1,9 @@
 use euclid::Size2D;
 use crate::platform::NativeGLContextMethods;
 use crate::platform::with_egl::utils::{create_pixel_buffer_backed_offscreen_context};
-use std::ffi::CString;
 use std::ops::Deref;
+use std::os::raw;
+use std::ptr;
 use crate::egl;
 use crate::egl::types::{EGLint, EGLBoolean, EGLDisplay, EGLSurface, EGLConfig, EGLContext};
 use gleam::gl;
@@ -32,11 +33,13 @@ pub struct NativeGLContext {
     native_display: EGLDisplay,
     native_surface: EGLSurface,
     native_context: EGLContext,
+    egl: egl::Egl,
     weak: bool,
 }
 
 impl NativeGLContext {
-    pub fn new(share_context: Option<&EGLContext>,
+    pub fn new(egl: egl::Egl,
+               share_context: Option<&EGLContext>,
                display: EGLDisplay,
                surface: EGLSurface,
                config: EGLConfig,
@@ -53,7 +56,7 @@ impl NativeGLContext {
             egl::NONE as EGLint, 0, 0, 0, // see mod.rs
         ];
 
-        let mut ctx =  unsafe { egl::CreateContext(display, config, shared, attributes.as_ptr()) };
+        let mut ctx =  unsafe { egl.CreateContext(display, config, shared, attributes.as_ptr()) };
 
         if share_context.is_some() && ctx == (egl::NO_CONTEXT as EGLContext) && client_version != 3 {
             // Workaround for GPUs that don't like different CONTEXT_CLIENT_VERSION value when sharing (e.g. Mali-T880).
@@ -63,13 +66,13 @@ impl NativeGLContext {
                 egl::CONTEXT_CLIENT_VERSION as EGLint, 3,
                 egl::NONE as EGLint, 0, 0, 0, // see mod.rs
             ];
-            ctx =  unsafe { egl::CreateContext(display, config, shared, attributes.as_ptr()) };
+            ctx =  unsafe { egl.CreateContext(display, config, shared, attributes.as_ptr()) };
         }
 
         // TODO: Check for every type of error possible, not just client error?
         // Note if we do it we must do it too on egl::CreatePBufferSurface, etc...
         if ctx == (egl::NO_CONTEXT as EGLContext) {
-            unsafe { egl::DestroySurface(display, surface) };
+            unsafe { egl.DestroySurface(display, surface) };
             return Err("Error creating an EGL context");
         }
 
@@ -78,6 +81,7 @@ impl NativeGLContext {
             native_surface: surface,
             native_context: ctx,
             weak: false,
+            egl,
         })
     }
 }
@@ -87,10 +91,10 @@ impl Drop for NativeGLContext {
         let _ = self.unbind();
         if !self.weak {
             unsafe {
-                if egl::DestroySurface(self.native_display, self.native_surface) == 0 {
+                if self.egl.DestroySurface(self.native_display, self.native_surface) == 0 {
                     debug!("egl::DestroySurface failed");
                 }
-                if egl::DestroyContext(self.native_display, self.native_context) == 0 {
+                if self.egl.DestroyContext(self.native_display, self.native_context) == 0 {
                     debug!("egl::DestroyContext failed");
                 }
             }
@@ -101,53 +105,34 @@ impl Drop for NativeGLContext {
 impl NativeGLContextMethods for NativeGLContext {
     type Handle = NativeGLContextHandle;
 
-    // According to the EGL spec <= 1.4, eglGetProcAddress should only be used to
-    // retrieve extension functions. Some implementatios return NULL for core OpenGL functions.
-    // Other implementations may return non-NULL values even for invalid core or extension symbols.
-    // This is very dangerous, so we use dlsym function before calling eglGetProcAddress
-    // in order to avoid possible garbage pointers.
     fn get_proc_address(addr: &str) -> *const () {
-        unsafe {
-            if let Some(ref lib) = *GL_LIB {
-                let symbol: Result<lib::Symbol<unsafe extern fn()>, _> = lib.get(addr.as_bytes());
-                if let Ok(symbol) = symbol {
-                    return *symbol.deref() as *const ();
-                }
-            }
-
-            let addr = CString::new(addr.as_bytes());
-            let addr = addr.unwrap().as_ptr();
-            egl::GetProcAddress(addr) as *const ()
-        }
+        get_proc_address(addr) as *const _
     }
 
     fn create_headless(api_type: &gl::GlType, api_version: GLVersion) -> Result<NativeGLContext, &'static str> {
         // We create a context with a dummy size, we can't rely on a
         // default framebuffer
-        create_pixel_buffer_backed_offscreen_context(Size2D::new(16, 16), None, api_type, api_version)
+        let egl = egl::Egl::load_with(get_proc_address);
+        create_pixel_buffer_backed_offscreen_context(egl, Size2D::new(16, 16), None, api_type, api_version)
     }
 
     fn create_shared(with: Option<&Self::Handle>,
                      api_type: &gl::GlType,
                      api_version: GLVersion) -> Result<NativeGLContext, &'static str> {
-        create_pixel_buffer_backed_offscreen_context(Size2D::new(16, 16), with, api_type, api_version)
+        let egl = egl::Egl::load_with(get_proc_address);
+        create_pixel_buffer_backed_offscreen_context(egl, Size2D::new(16, 16), with, api_type, api_version)
     }
 
     fn current_handle() -> Option<Self::Handle> {
-        let native_context = unsafe { egl::GetCurrentContext() };
-        let native_display = unsafe { egl::GetCurrentDisplay() };
-
-        if native_context != egl::NO_CONTEXT && native_display != egl::NO_DISPLAY {
-            Some(NativeGLContextHandle(native_context, native_display))
-        } else {
-            None
-        }
+        let egl = egl::Egl::load_with(get_proc_address);
+        current_handle(&egl)
     }
 
 
     fn current() -> Option<Self> {
-        if let Some(handle) = Self::current_handle() {
-            let surface = unsafe { egl::GetCurrentSurface(egl::DRAW as EGLint) };
+        let egl = egl::Egl::load_with(get_proc_address);
+        if let Some(handle) = current_handle(&egl) {
+            let surface = unsafe { egl.GetCurrentSurface(egl::DRAW as EGLint) };
 
             debug_assert!(surface != egl::NO_SURFACE);
 
@@ -156,6 +141,7 @@ impl NativeGLContextMethods for NativeGLContext {
                 native_display: handle.1,
                 native_surface: surface,
                 weak: true,
+                egl,
             })
         } else {
             None
@@ -165,17 +151,17 @@ impl NativeGLContextMethods for NativeGLContext {
     #[inline(always)]
     fn is_current(&self) -> bool {
         unsafe {
-            egl::GetCurrentContext() == self.native_context
+            self.egl.GetCurrentContext() == self.native_context
         }
     }
 
     fn make_current(&self) -> Result<(), &'static str> {
         unsafe {
             if !self.is_current() &&
-                egl::MakeCurrent(self.native_display,
-                                 self.native_surface,
-                                 self.native_surface,
-                                 self.native_context) == (egl::FALSE as EGLBoolean) {
+                self.egl.MakeCurrent(self.native_display,
+                                     self.native_surface,
+                                     self.native_surface,
+                                     self.native_context) == (egl::FALSE as EGLBoolean) {
                 Err("egl::MakeCurrent")
             } else {
                 Ok(())
@@ -190,14 +176,42 @@ impl NativeGLContextMethods for NativeGLContext {
     fn unbind(&self) -> Result<(), &'static str> {
         unsafe {
             if self.is_current() &&
-               egl::MakeCurrent(self.native_display,
-                                egl::NO_SURFACE as EGLSurface,
-                                egl::NO_SURFACE as EGLSurface,
-                                egl::NO_CONTEXT as EGLContext) == (egl::FALSE as EGLBoolean) {
+               self.egl.MakeCurrent(self.native_display,
+                                    egl::NO_SURFACE as EGLSurface,
+                                    egl::NO_SURFACE as EGLSurface,
+                                    egl::NO_CONTEXT as EGLContext) == (egl::FALSE as EGLBoolean) {
                 Err("egl::MakeCurrent (on unbind)")
             } else {
                 Ok(())
             }
         }
+    }
+}
+
+fn current_handle(egl: &egl::Egl) -> Option<NativeGLContextHandle> {
+    let native_context = unsafe { egl.GetCurrentContext() };
+    let native_display = unsafe { egl.GetCurrentDisplay() };
+
+    if native_context != egl::NO_CONTEXT && native_display != egl::NO_DISPLAY {
+        Some(NativeGLContextHandle(native_context, native_display))
+    } else {
+        None
+    }
+}
+
+// According to the EGL spec <= 1.4, eglGetProcAddress should only be used to
+// retrieve extension functions. Some implementatios return NULL for core OpenGL functions.
+// Other implementations may return non-NULL values even for invalid core or extension symbols.
+// This is very dangerous, so we use dlsym function before calling eglGetProcAddress
+// in order to avoid possible garbage pointers.
+fn get_proc_address(addr: &str) -> *const raw::c_void {
+    unsafe {
+        if let Some(ref lib) = *GL_LIB {
+            let symbol: Result<lib::Symbol<unsafe extern fn()>, _> = lib.get(addr.as_bytes());
+            if let Ok(symbol) = symbol {
+                return *symbol.deref() as *const _;
+            }
+        }
+        ptr::null()
     }
 }

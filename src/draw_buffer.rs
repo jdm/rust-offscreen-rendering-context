@@ -4,6 +4,7 @@ use gleam::gl::types::{GLuint, GLenum, GLint};
 use std::rc::Rc;
 
 use crate::GLContext;
+use crate::gl_context_attributes::GLContextAttributes;
 use crate::NativeGLContextMethods;
 
 #[derive(Debug)]
@@ -62,6 +63,11 @@ pub struct DrawBuffer {
     // samples: GLsizei,
 }
 
+pub enum RenderbufferAttachments {
+    DepthAndStencil(Option<GLuint>, Option<GLuint>),
+    PackedDepthAndStencil(GLuint),
+}
+
 /// Helper function to create a render buffer
 /// TODO(emilio): We'll need to switch between `glRenderbufferStorage` and
 /// `glRenderbufferStorageMultisample` when we support antialising
@@ -77,15 +83,26 @@ fn create_renderbuffer(gl_: &dyn gl::Gl,
 }
 
 impl DrawBuffer {
-    pub fn new<T: NativeGLContextMethods>(context: &GLContext<T>,
-                                          mut size: Size2D<i32>,
-                                          color_attachment_type: ColorAttachmentType)
-                                          -> Result<Self, &'static str>
+    pub fn new<T: NativeGLContextMethods>(
+        context: &GLContext<T>,
+        size: Size2D<i32>,
+        color_attachment_type: ColorAttachmentType
+    ) -> Result<Self, &'static str>
+    {
+        Self::new_with_attributes(context, size, color_attachment_type, context.borrow_attributes())
+    }
+
+    pub fn new_with_attributes<T>(
+        context: &GLContext<T>,
+        mut size: Size2D<i32>,
+        color_attachment_type: ColorAttachmentType,
+        attrs: &GLContextAttributes,
+    ) -> Result<Self, &'static str>
+        where T: NativeGLContextMethods
     {
         const MIN_DRAWING_BUFFER_SIZE: i32 = 16;
         use std::cmp;
 
-        let attrs = context.borrow_attributes();
         let capabilities = context.borrow_capabilities();
 
         debug!("Creating draw buffer {:?}, {:?}, attrs: {:?}, caps: {:?}",
@@ -118,7 +135,7 @@ impl DrawBuffer {
 
         context.make_current()?;
 
-        draw_buffer.init(context, color_attachment_type)?;
+        draw_buffer.init(context, color_attachment_type, attrs)?;
 
         debug_assert_eq!(draw_buffer.gl().check_frame_buffer_status(gl::FRAMEBUFFER),
                          gl::FRAMEBUFFER_COMPLETE);
@@ -158,6 +175,24 @@ impl DrawBuffer {
             &ColorAttachment::Texture(id) => Some(id),
         }
     }
+    
+    pub fn get_renderbuffer_attachments(&self) -> RenderbufferAttachments {
+        if self.packed_depth_stencil_renderbuffer != 0 {
+            RenderbufferAttachments::PackedDepthAndStencil(self.packed_depth_stencil_renderbuffer)
+        } else {
+            let depth = if self.depth_renderbuffer != 0 {
+                Some(self.depth_renderbuffer)
+            } else {
+                None
+            };
+            let stencil = if self.stencil_renderbuffer != 0 {
+                Some(self.stencil_renderbuffer)
+            } else {
+                None
+            };
+            RenderbufferAttachments::DepthAndStencil(depth, stencil)
+        }
+    }
 
     fn gl(&self) -> &dyn gl::Gl {
         &*self.gl_
@@ -166,9 +201,9 @@ impl DrawBuffer {
 
     fn init<T: NativeGLContextMethods>(&mut self,
                                        context: &GLContext<T>,
-                                       color_attachment_type: ColorAttachmentType)
+                                       color_attachment_type: ColorAttachmentType,
+                                       attrs: &GLContextAttributes)
         -> Result<(), &'static str> {
-        let attrs = context.borrow_attributes();
         let formats = context.borrow_formats();
 
         assert!(self.color_attachment.is_none(),

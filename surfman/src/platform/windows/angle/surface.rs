@@ -123,6 +123,7 @@ impl Device {
                 egl::HEIGHT as EGLint,          size.height as EGLint,
                 egl::TEXTURE_FORMAT as EGLint,  egl::TEXTURE_RGBA as EGLint,
                 egl::TEXTURE_TARGET as EGLint,  egl::TEXTURE_2D as EGLint,
+                //egl::GL_COLORSPACE as EGLint, egl::GL_COLORSPACE_SRGB as EGLint,
                 egl::NONE as EGLint,            0,
                 0,                              0,
             ];
@@ -242,6 +243,7 @@ impl Device {
                     egl::HEIGHT as EGLint,          surface.size.height,
                     egl::TEXTURE_FORMAT as EGLint,  egl::TEXTURE_RGBA as EGLint,
                     egl::TEXTURE_TARGET as EGLint,  egl::TEXTURE_2D as EGLint,
+                    //egl::GL_COLORSPACE as EGLint,   egl::GL_COLORSPACE_SRGB as EGLint,
                     egl::NONE as EGLint,            0,
                     0,                              0,
                 ];

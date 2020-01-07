@@ -33,7 +33,7 @@ pub(crate) enum Framebuffer<S> {
     Surface(S),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SurfaceID(pub usize);
 
 impl Display for SurfaceID {

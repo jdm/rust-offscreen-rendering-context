@@ -57,6 +57,44 @@ pub struct SurfaceTexture {
     pub(crate) phantom: PhantomData<*const ()>,
 }
 
+pub struct SurfacelessTexture {
+    local_egl_surface: EGLSurface,
+    local_keyed_mutex: Option<ComPtr<IDXGIKeyedMutex>>,
+    gl_texture: GLuint,
+    phantom: PhantomData<*const ()>,    
+}
+
+impl SurfaceTexture {
+    pub fn from_surfaceless(surface: Surface, texture: SurfacelessTexture) -> SurfaceTexture {
+        let surface_texture = SurfaceTexture {
+            surface,
+            local_egl_surface: texture.local_egl_surface,
+            local_keyed_mutex: texture.local_keyed_mutex,
+            gl_texture: texture.gl_texture,
+            phantom: texture.phantom,
+        };
+        surface_texture.acquire();
+        surface_texture
+    }    
+
+    pub fn into_surfaceless(self) -> (SurfacelessTexture, Surface) {
+        self.release();
+        let SurfaceTexture {
+            surface,
+            local_egl_surface,
+            local_keyed_mutex,
+            gl_texture,
+            phantom,
+        } = self;
+        (SurfacelessTexture {
+            local_egl_surface,
+            local_keyed_mutex,
+            gl_texture,
+            phantom,
+        }, surface)
+    }
+}
+
 unsafe impl Send for Surface {}
 
 impl Debug for Surface {
@@ -426,6 +464,22 @@ impl SurfaceTexture {
     #[inline]
     pub fn gl_texture(&self) -> GLuint {
         self.gl_texture
+    }
+}
+
+impl SurfaceTexture { 
+    pub fn acquire(&self) {
+        if let Some(ref mutex) = self.local_keyed_mutex {
+            let result = unsafe { mutex.AcquireSync(0, INFINITE) };
+            assert_eq!(result, S_OK);
+        }
+    }
+    
+    pub fn release(&self) {
+        if let Some(ref mutex) = self.local_keyed_mutex {
+            let result = unsafe { mutex.ReleaseSync(0) };
+            assert_eq!(result, S_OK);
+        }
     }
 }
 

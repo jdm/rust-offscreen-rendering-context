@@ -49,7 +49,12 @@ impl Device {
             }
             debug_assert!(d3d11_feature_level >= D3D_FEATURE_LEVEL_9_3);
             let d3d11_device = ComPtr::from_raw(d3d11_device);
-
+            Ok(Self::from_d3d11_device(d3d11_device, d3d_driver_type))
+        }
+    }
+    
+    pub fn from_d3d11_device(d3d11_device: ComPtr<ID3D11Device>, d3d_driver_type: D3D_DRIVER_TYPE) -> Self {
+        unsafe {
             let eglCreateDeviceANGLE =
                 EGL_EXTENSION_FUNCTIONS.CreateDeviceANGLE
                                        .expect("Where's the `EGL_ANGLE_device_creation` \
@@ -74,7 +79,7 @@ impl Device {
                                             &mut minor_version);
                 assert_ne!(result, egl::FALSE);
 
-                Ok(Device { native_display, d3d11_device, d3d_driver_type })
+                Device { native_display, d3d11_device, d3d_driver_type }
             })
         }
     }

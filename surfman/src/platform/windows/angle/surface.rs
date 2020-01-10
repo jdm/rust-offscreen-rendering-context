@@ -391,6 +391,17 @@ impl Device {
     pub fn destroy_surface_texture(&self, _: &mut Context, mut surface_texture: SurfaceTexture)
                                    -> Result<Surface, Error> {
         unsafe {
+            EGL_FUNCTIONS.with(|egl| {
+                if egl.ReleaseTexImage(self.native_display.egl_display(),
+                                       surface_texture.local_egl_surface,
+                                       egl::BACK_BUFFER as GLint) == egl::FALSE {
+                    let windowing_api_error = egl.GetError().to_windowing_api_error();
+                    Err(Error::SurfaceTextureCreationFailed(windowing_api_error)) //XXXjdm better error
+                } else {
+                    Ok(())
+                }
+             })?;
+
             GL_FUNCTIONS.with(|gl| gl.DeleteTextures(1, &surface_texture.gl_texture));
             surface_texture.gl_texture = 0;
 

@@ -16,7 +16,7 @@ use std::ptr;
 use winapi::Interface;
 use winapi::shared::dxgi::IDXGIDevice;
 use winapi::shared::winerror;
-use winapi::um::d3d11::{D3D11CreateDevice, D3D11_SDK_VERSION, ID3D11Device};
+use winapi::um::d3d11::{self, D3D11CreateDevice, D3D11_SDK_VERSION, ID3D11Device};
 use winapi::um::d3dcommon::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL_9_3};
 use wio::com::ComPtr;
 
@@ -37,6 +37,7 @@ impl Device {
             let result = D3D11CreateDevice(adapter.dxgi_adapter.as_raw(),
                                            d3d_driver_type,
                                            ptr::null_mut(),
+                                           //d3d11::D3D11_CREATE_DEVICE_DEBUG,
                                            0,
                                            ptr::null_mut(),
                                            0,

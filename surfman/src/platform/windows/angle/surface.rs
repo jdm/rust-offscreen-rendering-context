@@ -469,6 +469,38 @@ impl Surface {
             Win32Objects::Pbuffer { keyed_mutex: None, .. } | Win32Objects::Window => false,
         }
     }
+    
+    pub fn handle(&self) -> HANDLE {
+        match self.win32_objects {
+            Win32Objects::Pbuffer { share_handle, .. } => {
+                match share_handle {
+                    HandleOrTexture::Handle(handle) => handle,
+                    _ => unimplemented!(),
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
+    
+    /*pub fn acquire(&self) {
+        match self.win32_objects {
+            Win32Objects::Pbuffer { keyed_mutex: Some(mutex), .. } => {
+                let result = unsafe { mutex.AcquireSync(0, INFINITE) };
+                assert_eq!(result, S_OK);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn release(&self) {
+        match self.win32_objects {
+            Win32Objects::Pbuffer { keyed_mutex: Some(mutex), .. } => {
+                let result = unsafe { mutex.Release(0) };
+                assert_eq!(result, S_OK);
+            }
+            _ => {}
+        }
+    }*/
 }
 
 impl SurfaceTexture {

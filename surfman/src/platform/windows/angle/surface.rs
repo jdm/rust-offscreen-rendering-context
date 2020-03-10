@@ -10,6 +10,7 @@ use crate::gl;
 use crate::platform::generic::egl::device::EGL_FUNCTIONS;
 use crate::platform::generic::egl::error::ToWindowingApiError;
 use crate::platform::generic::egl::ffi::EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE;
+use crate::platform::generic::egl::ffi::EGL_D3D_TEXTURE_ANGLE;
 use crate::platform::generic::egl::ffi::EGL_DXGI_KEYED_MUTEX_ANGLE;
 use crate::platform::generic::egl::ffi::EGL_EXTENSION_FUNCTIONS;
 use crate::{Error, SurfaceAccess, SurfaceID, SurfaceInfo, SurfaceType};
@@ -25,6 +26,7 @@ use std::thread;
 use winapi::shared::dxgi::IDXGIKeyedMutex;
 use winapi::shared::windef::{HWND, RECT};
 use winapi::shared::winerror::S_OK;
+use winapi::um::d3d11;
 use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::winbase::INFINITE;
 use winapi::um::winnt::HANDLE;
@@ -117,6 +119,13 @@ pub struct NativeWidget {
 #[cfg(target_vendor = "uwp")]
 pub struct NativeWidget;
 
+
+#[derive(Copy, Clone)]
+pub(crate) enum HandleOrTexture {
+    Handle(HANDLE),
+    Texture(*mut d3d11::ID3D11Texture2D)
+}
+
 impl Device {
     /// Creates either a generic or a widget surface, depending on the supplied surface type.
     /// 
@@ -142,7 +151,7 @@ impl Device {
     fn create_pbuffer_surface(&mut self,
                               context: &Context,
                               size: &Size2D<i32>,
-                              share_handle: Option<HANDLE>)
+                              share_handle: Option<HandleOrTexture>)
                               -> Result<Surface, Error> {
         let context_descriptor = self.context_descriptor(context);
         let egl_config = self.context_descriptor_to_egl_config(&context_descriptor);
@@ -160,7 +169,7 @@ impl Device {
             EGL_FUNCTIONS.with(|egl| {
                 let egl_surface = if let Some(HandleOrTexture::Texture(texture)) = share_handle {
                     let surface =
-                        egl.CreatePbufferFromClientBuffer(self.native_display.egl_display(),
+                        egl.CreatePbufferFromClientBuffer(self.egl_display,
                                                           EGL_D3D_TEXTURE_ANGLE,
                                                           texture as *const _,
                                                           egl_config,
@@ -182,7 +191,7 @@ impl Device {
                                         .expect("Where's the `EGL_ANGLE_query_surface_pointer` \
                                                  extension?");
 
-                let share_handle = if let Some(share_handle) = share_handle {
+                let share_handle = if let Some(HandleOrTexture::Handle(share_handle)) = share_handle {
                     share_handle
                 } else {
                     let mut share_handle = INVALID_HANDLE_VALUE;
@@ -260,6 +269,17 @@ impl Device {
     fn create_window_surface(&mut self, context: &Context, native_widget: &NativeWidget)
                               -> Result<Surface, Error> {
         Err(Error::UnsupportedOnThisPlatform)
+    }
+
+    /// Given a D3D11 texture, create a surface that wraps that texture. This method is unsafe
+    /// in that the resulting surface is only valid on the current thread.
+    pub unsafe fn create_surface_from_texture(
+        &mut self,
+        context: &Context,
+        size: &Size2D<i32>,
+        texture: *mut d3d11::ID3D11Texture2D
+    ) -> Result<Surface, Error> {
+        self.create_pbuffer_surface(context, size, Some(HandleOrTexture::Texture(texture)))
     }
 
     /// Creates a surface texture from an existing generic surface for use with the given context.

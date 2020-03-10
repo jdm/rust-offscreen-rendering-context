@@ -27,6 +27,20 @@ thread_local! {
     pub static GL_FUNCTIONS: Gl = Gl::load_with(context::get_proc_address);
 }
 
+#[cfg(feature = "sm-angle-flush")]
+fn flush_surface_contents() {
+    unsafe {
+        GL_FUNCTIONS.with(|gl| gl.Flush());
+    }
+}
+
+#[cfg(not(feature = "sm-angle-flush"))]
+fn flush_surface_contents() {
+    unsafe {
+        GL_FUNCTIONS.with(|gl| gl.Finish());
+    }
+}
+
 /// Represents an OpenGL rendering context.
 /// 
 /// A context allows you to issue rendering commands to a surface. When initially created, a
@@ -268,9 +282,7 @@ impl Device {
         // FIXME(pcwalton): Is this necessary and sufficient?
         if !surface.uses_keyed_mutex() {
             if let Ok(_guard) = self.temporarily_make_context_current(context) {
-                unsafe {
-                    GL_FUNCTIONS.with(|gl| gl.Finish());
-                }
+                flush_surface_contents();
             }
         }
 
